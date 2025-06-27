@@ -1,0 +1,64 @@
+const groupedBySource = {};
+const metadata = {
+  ecs_version: "8.17.0",
+  cps_version: "1.0.0",
+  parser_version: "1.0.0",
+  event_kind: "event",
+  event_module: "aws-generic",
+  cloud_provider: "aws"
+};
+
+for (const item of $input.all()) {
+  const source = item.json.source || item.json.Source || item.json.SOURCE || "default";
+  const cleanedSource = source.trim().replace(/\\s+/g, "_");
+
+  if (!groupedBySource[cleanedSource]) {
+    groupedBySource[cleanedSource] = [];
+  }
+
+  // Merge in metadata\
+  const fullJson = {
+    ...item.json,
+    ...metadata,
+  };
+
+  // \uc0\u55357 \u56391  Set @timestamp using created_at\
+  if (fullJson.created_at) {
+    fullJson["@timestamp"] = fullJson.created_at;
+  }
+
+  // \uc0\u55357 \u56391  Generate compact rawstring\
+  try {
+    fullJson.rawstring = JSON.stringify(fullJson);
+  } catch (err) {
+    fullJson.rawstring = "\{\}";
+  }
+
+  groupedBySource[cleanedSource].push(fullJson);
+}
+
+const items = [];
+
+for (const [sourceName, logs] of Object.entries(groupedBySource)) {
+  const timestamp = new Date().toISOString().replace(/[-:T.]/g, "_");
+  const fileName = `$\{sourceName\}_$\{timestamp\}.json`;
+
+  // Use newline-delimited JSON (for Split by New Line preprocessing)\
+  const formattedLogs = logs.map(log => JSON.stringify(log)).join("\\n");
+
+  const fileBuffer = Buffer.from(formattedLogs);
+
+  items.push({
+    json: {
+      fileName: fileName
+    },
+    binary: {
+      data: {
+        data: fileBuffer.toString('base64')
+      }
+    }
+  });
+}
+
+return items;
+}
